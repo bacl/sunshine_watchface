@@ -21,7 +21,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -33,6 +36,7 @@ import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
+import android.view.animation.PathInterpolator;
 
 import java.lang.ref.WeakReference;
 import java.util.TimeZone;
@@ -43,8 +47,8 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class SunshineWatchFace extends CanvasWatchFaceService {
-    private static final Typeface NORMAL_TYPEFACE =
-            Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
+    private static final Typeface NORMAL_TYPEFACE = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
+    private static final Typeface BOLD_TYPEFACE = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD);
 
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
@@ -76,7 +80,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         boolean mRegisteredTimeZoneReceiver = false;
 
         Paint mBackgroundPaint;
-        Paint mTextPaint;
+        Paint mLinePaint;
+        Paint mTextPaint_time;
+        Paint mTextPaint_time_bold;
+        Paint mTextPaint_date;
+        Paint mTextPaint_temp;
+        Paint mTextPaint_temp_bold;
+
+        Bitmap mWeatherIcon;
+
+        Rect mTextBounds = new Rect();
 
         boolean mAmbient;
 
@@ -106,8 +119,27 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.digital_background));
 
-            mTextPaint = new Paint();
-            mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
+
+            mTextPaint_time = new Paint();
+            mTextPaint_time = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
+            //TODO: mudar isto
+            mTextPaint_time_bold = new Paint();
+            mTextPaint_time_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
+
+            mTextPaint_date = new Paint();
+            mTextPaint_date = createTextPaint(resources.getColor(R.color.second_text), NORMAL_TYPEFACE);
+
+            mTextPaint_temp = new Paint();
+            mTextPaint_temp = createTextPaint(resources.getColor(R.color.second_text), NORMAL_TYPEFACE);
+            mTextPaint_temp_bold = new Paint();
+            mTextPaint_temp_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
+
+            mLinePaint = new Paint();
+            mLinePaint.setColor(resources.getColor(R.color.second_text));
+            mLinePaint.setStrokeWidth(0.5f);
+            mLinePaint.setAntiAlias(true);
+
+            mWeatherIcon = BitmapFactory.decodeResource(getResources(), R.drawable.ic_clear);
 
             mTime = new Time();
         }
@@ -118,10 +150,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             super.onDestroy();
         }
 
-        private Paint createTextPaint(int textColor) {
+        private Paint createTextPaint(int textColor, Typeface typeface) {
             Paint paint = new Paint();
             paint.setColor(textColor);
-            paint.setTypeface(NORMAL_TYPEFACE);
+            paint.setTypeface(typeface);
             paint.setAntiAlias(true);
             return paint;
         }
@@ -169,12 +201,19 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             // Load resources that have alternate values for round watches.
             Resources resources = SunshineWatchFace.this.getResources();
             boolean isRound = insets.isRound();
+
             mXOffset = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
+
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
 
-            mTextPaint.setTextSize(textSize);
+            mTextPaint_time.setTextSize(resources.getDimension(R.dimen.time_text_size));
+            mTextPaint_time_bold.setTextSize(resources.getDimension(R.dimen.time_text_size));
+            mTextPaint_date.setTextSize(resources.getDimension(R.dimen.date_text_size));
+            mTextPaint_temp.setTextSize(resources.getDimension(R.dimen.temp_text_size));
+            mTextPaint_temp_bold.setTextSize(resources.getDimension(R.dimen.temp_text_size));
+
         }
 
         @Override
@@ -195,7 +234,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             if (mAmbient != inAmbientMode) {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
-                    mTextPaint.setAntiAlias(!inAmbientMode);
+                    mTextPaint_time.setAntiAlias(!inAmbientMode);
+                    mTextPaint_date.setAntiAlias(!inAmbientMode);
+                    mTextPaint_temp.setAntiAlias(!inAmbientMode);
+                    mLinePaint.setAntiAlias(!inAmbientMode);
                 }
                 invalidate();
             }
@@ -212,11 +254,53 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             mTime.setToNow();
-            String text = mAmbient
-                    ? String.format("%d:%02d", mTime.hour, mTime.minute)
-                    : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+//            String text = mAmbient
+//                    ? String.format("%d %02d", mTime.hour, mTime.minute)
+//                    : String.format("%d:%02d", mTime.hour, mTime.minute);
+
+            // canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+
+            int espacamentoY = 20;
+            int espacamentoX = 10;
+            int espacamentoY_tmp = 0;
+            String text;
+            int centerX = bounds.width() / 2;
+            int centerY = bounds.height() / 2;
+
+
+            // draw date
+            text = "FRI, JUL 14 2015";
+            mTextPaint_date.getTextBounds(text, 0, text.length(), mTextBounds);
+            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY, mTextPaint_date);
+            espacamentoY_tmp = mTextBounds.height();
+
+            // draw time
+            text = "15:50";
+            mTextPaint_time_bold.getTextBounds(text, 0, text.length(), mTextBounds);
+            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time_bold);
+
+            // draw line
+            espacamentoY_tmp = espacamentoY;
+            canvas.drawLine(centerX - 20, centerY + espacamentoY, centerX + 20, centerY + espacamentoY_tmp, mLinePaint);
+
+
+            // draw temperature h
+            text = "25"+ (char) 0x00B0 ;
+            mTextPaint_temp_bold.getTextBounds(text, 0, text.length(), mTextBounds);
+            espacamentoY_tmp = mTextBounds.height() + espacamentoY + espacamentoY_tmp;
+            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY + espacamentoY_tmp, mTextPaint_temp_bold);
+
+            // draw temperature low
+            text = "16"+ (char) 0x00B0 ;
+            canvas.drawText(text, centerX + mTextBounds.width() / 2 + espacamentoX, centerY + espacamentoY_tmp, mTextPaint_temp);
+
+
+            // draw weather icon
+            canvas.drawBitmap(mWeatherIcon,
+                    centerX - mTextBounds.width() / 2 - espacamentoX - mWeatherIcon.getWidth(),
+                    centerY + espacamentoY_tmp - mWeatherIcon.getHeight()/2 -  mTextBounds.height() / 2, null);
         }
+
 
         /**
          * Starts the {@link #mUpdateTimeHandler} timer if it should be running and isn't currently

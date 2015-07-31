@@ -24,7 +24,6 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
@@ -34,9 +33,9 @@ import android.os.Message;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
+import android.view.Gravity;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
-import android.view.animation.PathInterpolator;
 
 import java.lang.ref.WeakReference;
 import java.util.TimeZone;
@@ -48,7 +47,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class SunshineWatchFace extends CanvasWatchFaceService {
     private static final Typeface NORMAL_TYPEFACE = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-    private static final Typeface BOLD_TYPEFACE = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD);
+    private static final Typeface LIGHT_TYPEFACE = Typeface.create("sans-serif-light", Typeface.NORMAL);
 
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
@@ -109,8 +108,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             super.onCreate(holder);
 
             setWatchFaceStyle(new WatchFaceStyle.Builder(SunshineWatchFace.this)
-                    .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
+                    .setCardPeekMode(WatchFaceStyle.PEEK_MODE_SHORT)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
+                    .setHotwordIndicatorGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL)
                     .setShowSystemUiTime(false)
                     .build());
             Resources resources = SunshineWatchFace.this.getResources();
@@ -121,16 +121,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
 
             mTextPaint_time = new Paint();
-            mTextPaint_time = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
+            mTextPaint_time = createTextPaint(resources.getColor(R.color.main_text), LIGHT_TYPEFACE);
             //TODO: mudar isto
             mTextPaint_time_bold = new Paint();
             mTextPaint_time_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
 
             mTextPaint_date = new Paint();
-            mTextPaint_date = createTextPaint(resources.getColor(R.color.second_text), NORMAL_TYPEFACE);
+            mTextPaint_date = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
 
             mTextPaint_temp = new Paint();
-            mTextPaint_temp = createTextPaint(resources.getColor(R.color.second_text), NORMAL_TYPEFACE);
+            mTextPaint_temp = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
             mTextPaint_temp_bold = new Paint();
             mTextPaint_temp_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
 
@@ -259,11 +259,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 //                    : String.format("%d:%02d", mTime.hour, mTime.minute);
 
             // canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
-
+            int lineWidth = 20;
             int espacamentoY = 20;
             int espacamentoX = 10;
+            int espacamentoX_tmp = 0;
             int espacamentoY_tmp = 0;
             String text;
+            String text2;
             int centerX = bounds.width() / 2;
             int centerY = bounds.height() / 2;
 
@@ -275,13 +277,20 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             espacamentoY_tmp = mTextBounds.height();
 
             // draw time
-            text = "15:50";
+            text = "15:";
             mTextPaint_time_bold.getTextBounds(text, 0, text.length(), mTextBounds);
-            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time_bold);
+            espacamentoX_tmp=mTextBounds.width();
+
+            text2 = "50";
+            mTextPaint_time_bold.getTextBounds(text2, 0, text2.length(), mTextBounds);
+            espacamentoX_tmp=espacamentoX_tmp+mTextBounds.width();
+
+            canvas.drawText(text, centerX - espacamentoX_tmp / 2, centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time_bold);
+            canvas.drawText(text2, centerX + ((espacamentoX_tmp / 2) - mTextBounds.width()+5) , centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time);
 
             // draw line
             espacamentoY_tmp = espacamentoY;
-            canvas.drawLine(centerX - 20, centerY + espacamentoY, centerX + 20, centerY + espacamentoY_tmp, mLinePaint);
+            canvas.drawLine(centerX - lineWidth, centerY + espacamentoY, centerX + lineWidth, centerY + espacamentoY_tmp, mLinePaint);
 
 
             // draw temperature h

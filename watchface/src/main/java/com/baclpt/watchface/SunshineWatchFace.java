@@ -20,6 +20,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.IntentSender;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -38,11 +39,15 @@ import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
 import java.lang.ref.WeakReference;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Digital watch face with seconds. In ambient mode, the seconds aren't displayed. On devices with
+ * Digital watch face with weather forecast. On devices with
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class SunshineWatchFace extends CanvasWatchFaceService {
@@ -66,42 +71,50 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
     }
 
     private class Engine extends CanvasWatchFaceService.Engine {
+        private static final String COLON_STRING = ":";
         final Handler mUpdateTimeHandler = new EngineHandler(this);
 
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                mTime.clear(intent.getStringExtra("time-zone"));
-                mTime.setToNow();
+                mCalendar.setTimeZone(TimeZone.getDefault());
+                initFormats();
+                invalidate();
             }
         };
 
         boolean mRegisteredTimeZoneReceiver = false;
 
-        Paint mBackgroundPaint;
-        Paint mLinePaint;
-        Paint mTextPaint_time;
-        Paint mTextPaint_time_bold;
-        Paint mTextPaint_date;
-        Paint mTextPaint_temp;
-        Paint mTextPaint_temp_bold;
-
-        Bitmap mWeatherIcon;
-
-        Rect mTextBounds = new Rect();
-
         boolean mAmbient;
 
-        Time mTime;
-
-        float mXOffset;
-        float mYOffset;
+        //  Time ;
+        Calendar mCalendar;
+        Date mDate;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
+
+
+        int backgroundColorInteractive;
+        int backgroundColorAmbient;
+        Paint mBackgroundPaint;
+        Paint mLinePaint;
+        Paint mTextPaint_time;
+        Paint mTextPaint_time_light;
+        Paint mTextPaint_date;
+        Paint mTextPaint_temp;
+        Paint mTextPaint_temp_light;
+        Bitmap mWeatherIcon;
+        Rect mTextBounds = new Rect();
+
+        int lineWidth = 22;
+        int offsetY = 20;
+        int offsetX = 10;
+        float mColonWidth = 0;
+        SimpleDateFormat mDateFormat;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -113,41 +126,46 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     .setHotwordIndicatorGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL)
                     .setShowSystemUiTime(false)
                     .build());
+
             Resources resources = SunshineWatchFace.this.getResources();
-            mYOffset = resources.getDimension(R.dimen.digital_y_offset);
+
+            backgroundColorInteractive = resources.getColor(R.color.digital_background_interactive);
+            backgroundColorAmbient = resources.getColor(R.color.digital_background_ambient);
 
             mBackgroundPaint = new Paint();
-            mBackgroundPaint.setColor(resources.getColor(R.color.digital_background));
+            mBackgroundPaint.setColor(backgroundColorInteractive);
 
+            mTextPaint_time = createTextPaint(resources.getColor(R.color.main_text));
+            mTextPaint_time_light = createTextPaint(resources.getColor(R.color.main_text), LIGHT_TYPEFACE);
 
-            mTextPaint_time = new Paint();
-            mTextPaint_time = createTextPaint(resources.getColor(R.color.main_text), LIGHT_TYPEFACE);
-            //TODO: mudar isto
-            mTextPaint_time_bold = new Paint();
-            mTextPaint_time_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
-
-            mTextPaint_date = new Paint();
             mTextPaint_date = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
 
-            mTextPaint_temp = new Paint();
-            mTextPaint_temp = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
-            mTextPaint_temp_bold = new Paint();
-            mTextPaint_temp_bold = createTextPaint(resources.getColor(R.color.main_text), NORMAL_TYPEFACE);
+            mTextPaint_temp = createTextPaint(resources.getColor(R.color.main_text));
+            mTextPaint_temp_light = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
 
-            mLinePaint = new Paint();
-            mLinePaint.setColor(resources.getColor(R.color.second_text));
-            mLinePaint.setStrokeWidth(0.5f);
-            mLinePaint.setAntiAlias(true);
+            mLinePaint = createLinePaint(resources.getColor(R.color.second_text), 0.5f);
 
             mWeatherIcon = BitmapFactory.decodeResource(getResources(), R.drawable.ic_clear);
 
-            mTime = new Time();
+            mCalendar = Calendar.getInstance();
+            mDate = new Date();
+
+            //
+            mColonWidth = mTextPaint_time.measureText(COLON_STRING) / 2;
+
+            initFormats();
+
+
         }
 
         @Override
         public void onDestroy() {
             mUpdateTimeHandler.removeMessages(MSG_UPDATE_TIME);
             super.onDestroy();
+        }
+
+        private Paint createTextPaint(int textColor) {
+            return createTextPaint(textColor, NORMAL_TYPEFACE);
         }
 
         private Paint createTextPaint(int textColor, Typeface typeface) {
@@ -158,6 +176,19 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             return paint;
         }
 
+        private Paint createLinePaint(int textColor, float strokeWidth) {
+            Paint paint = new Paint();
+            paint.setColor(textColor);
+            paint.setStrokeWidth(strokeWidth);
+            paint.setAntiAlias(true);
+            return paint;
+        }
+
+        private void initFormats() {
+            mDateFormat = new SimpleDateFormat("ccc, MMM d yyyy", Locale.getDefault());
+            mDateFormat.setCalendar(mCalendar);
+        }
+
         @Override
         public void onVisibilityChanged(boolean visible) {
             super.onVisibilityChanged(visible);
@@ -166,8 +197,8 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 registerReceiver();
 
                 // Update time zone in case it changed while we weren't visible.
-                mTime.clear(TimeZone.getDefault().getID());
-                mTime.setToNow();
+                mCalendar.setTimeZone(TimeZone.getDefault());
+                initFormats();
             } else {
                 unregisterReceiver();
             }
@@ -198,21 +229,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onApplyWindowInsets(WindowInsets insets) {
             super.onApplyWindowInsets(insets);
 
-            // Load resources that have alternate values for round watches.
             Resources resources = SunshineWatchFace.this.getResources();
-            boolean isRound = insets.isRound();
 
-            mXOffset = resources.getDimension(isRound
-                    ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
-
-            float textSize = resources.getDimension(isRound
-                    ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
-
+            mTextPaint_time_light.setTextSize(resources.getDimension(R.dimen.time_text_size));
             mTextPaint_time.setTextSize(resources.getDimension(R.dimen.time_text_size));
-            mTextPaint_time_bold.setTextSize(resources.getDimension(R.dimen.time_text_size));
             mTextPaint_date.setTextSize(resources.getDimension(R.dimen.date_text_size));
+            mTextPaint_temp_light.setTextSize(resources.getDimension(R.dimen.temp_text_size));
             mTextPaint_temp.setTextSize(resources.getDimension(R.dimen.temp_text_size));
-            mTextPaint_temp_bold.setTextSize(resources.getDimension(R.dimen.temp_text_size));
 
         }
 
@@ -232,11 +255,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onAmbientModeChanged(boolean inAmbientMode) {
             super.onAmbientModeChanged(inAmbientMode);
             if (mAmbient != inAmbientMode) {
+
+                mBackgroundPaint.setColor(inAmbientMode ? backgroundColorAmbient : backgroundColorInteractive);
+
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
                     mTextPaint_time.setAntiAlias(!inAmbientMode);
+                    mTextPaint_time_light.setAntiAlias(!inAmbientMode);
                     mTextPaint_date.setAntiAlias(!inAmbientMode);
                     mTextPaint_temp.setAntiAlias(!inAmbientMode);
+                    mTextPaint_temp_light.setAntiAlias(!inAmbientMode);
                     mLinePaint.setAntiAlias(!inAmbientMode);
                 }
                 invalidate();
@@ -247,68 +275,77 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             updateTimer();
         }
 
+
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
             // Draw the background.
             canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
 
-            // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
-            mTime.setToNow();
-//            String text = mAmbient
-//                    ? String.format("%d %02d", mTime.hour, mTime.minute)
-//                    : String.format("%d:%02d", mTime.hour, mTime.minute);
+            // update time
+            long now = System.currentTimeMillis();
+            mCalendar.setTimeInMillis(now);
+            mDate.setTime(now);
 
-            // canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
-            int lineWidth = 20;
-            int espacamentoY = 20;
-            int espacamentoX = 10;
-            int espacamentoX_tmp = 0;
-            int espacamentoY_tmp = 0;
-            String text;
-            String text2;
             int centerX = bounds.width() / 2;
             int centerY = bounds.height() / 2;
 
+            float offsetX_tmp;
+            float offsetY_tmp;
+            String text;
+            String text2;
+
 
             // draw date
-            text = "FRI, JUL 14 2015";
+            text = mDateFormat.format(mDate).toUpperCase();
             mTextPaint_date.getTextBounds(text, 0, text.length(), mTextBounds);
-            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY, mTextPaint_date);
-            espacamentoY_tmp = mTextBounds.height();
+            if (!mAmbient)
+                canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY, mTextPaint_date);
+            offsetY_tmp = mTextBounds.height();
 
             // draw time
-            text = "15:";
-            mTextPaint_time_bold.getTextBounds(text, 0, text.length(), mTextBounds);
-            espacamentoX_tmp=mTextBounds.width();
+            text = mAmbient ? String.format("%02d ", mCalendar.get(Calendar.HOUR_OF_DAY)) : String.format("%02d:", mCalendar.get(Calendar.HOUR_OF_DAY));
+            offsetX_tmp = (int) mTextPaint_time.measureText(text);
 
-            text2 = "50";
-            mTextPaint_time_bold.getTextBounds(text2, 0, text2.length(), mTextBounds);
-            espacamentoX_tmp=espacamentoX_tmp+mTextBounds.width();
+            text2 = String.format("%02d", mCalendar.get(Calendar.MINUTE));
+            mTextPaint_time_light.getTextBounds(text2, 0, text2.length(), mTextBounds);
+            offsetX_tmp = offsetX_tmp + mTextBounds.width();
 
-            canvas.drawText(text, centerX - espacamentoX_tmp / 2, centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time_bold);
-            canvas.drawText(text2, centerX + ((espacamentoX_tmp / 2) - mTextBounds.width()+5) , centerY - espacamentoY + 4 - espacamentoY_tmp, mTextPaint_time);
-
-            // draw line
-            espacamentoY_tmp = espacamentoY;
-            canvas.drawLine(centerX - lineWidth, centerY + espacamentoY, centerX + lineWidth, centerY + espacamentoY_tmp, mLinePaint);
-
-
-            // draw temperature h
-            text = "25"+ (char) 0x00B0 ;
-            mTextPaint_temp_bold.getTextBounds(text, 0, text.length(), mTextBounds);
-            espacamentoY_tmp = mTextBounds.height() + espacamentoY + espacamentoY_tmp;
-            canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY + espacamentoY_tmp, mTextPaint_temp_bold);
-
-            // draw temperature low
-            text = "16"+ (char) 0x00B0 ;
-            canvas.drawText(text, centerX + mTextBounds.width() / 2 + espacamentoX, centerY + espacamentoY_tmp, mTextPaint_temp);
+            canvas.drawText(text,
+                    centerX - offsetX_tmp / 2,
+                    centerY - offsetY + 4 - offsetY_tmp,
+                    mTextPaint_time);
+            canvas.drawText(text2,
+                    centerX + ((offsetX_tmp / 2) - mTextBounds.width()),
+                    centerY - offsetY + 4 - offsetY_tmp,
+                    mTextPaint_time_light);
 
 
-            // draw weather icon
-            canvas.drawBitmap(mWeatherIcon,
-                    centerX - mTextBounds.width() / 2 - espacamentoX - mWeatherIcon.getWidth(),
-                    centerY + espacamentoY_tmp - mWeatherIcon.getHeight()/2 -  mTextBounds.height() / 2, null);
+            if (!mAmbient) {
+                // draw line
+                offsetY_tmp = offsetY;
+                canvas.drawLine(centerX - lineWidth, centerY + offsetY, centerX + lineWidth, centerY + offsetY_tmp, mLinePaint);
+
+
+                // draw temperature h
+                text = "25" + (char) 0x00B0;
+                mTextPaint_temp.getTextBounds(text, 0, text.length(), mTextBounds);
+                offsetY_tmp = mTextBounds.height() + offsetY + offsetY_tmp;
+                canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY + offsetY_tmp, mTextPaint_temp);
+
+                // draw temperature low
+                text = "16" + (char) 0x00B0;
+                canvas.drawText(text, centerX + mTextBounds.width() / 2 + offsetX, centerY + offsetY_tmp, mTextPaint_temp_light);
+
+
+                // draw weather icon
+                canvas.drawBitmap(mWeatherIcon,
+                        centerX - mTextBounds.width() / 2 - offsetX - mWeatherIcon.getWidth(),
+                        centerY + offsetY_tmp - mWeatherIcon.getHeight() / 2 - mTextBounds.height() / 2, null);
+            }
         }
+
+
+
 
 
         /**

@@ -32,6 +32,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.wearable.watchface.CanvasWatchFaceService;
+import android.support.wearable.watchface.WatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
 import android.view.Gravity;
@@ -55,10 +56,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
     private static final Typeface LIGHT_TYPEFACE = Typeface.create("sans-serif-light", Typeface.NORMAL);
 
     /**
-     * Update rate in milliseconds for interactive mode. We update once a second since seconds are
-     * displayed in interactive mode.
+     * Update rate in milliseconds for normal (not ambient and not mute) mode. We update twice
+     * a second to blink the colons.
      */
-    private static final long INTERACTIVE_UPDATE_RATE_MS = TimeUnit.SECONDS.toMillis(1);
+    private static final long NORMAL_UPDATE_RATE_MS = 500;
+
+    /**
+     * Update rate in milliseconds for mute mode. We update every minute, like in ambient mode.
+     */
+    private static final long MUTE_UPDATE_RATE_MS = TimeUnit.MINUTES.toMillis(1);
+
 
     /**
      * Handler message id for updating the time periodically in interactive mode.
@@ -87,6 +94,12 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
         boolean mAmbient;
 
+        /**
+         * How often {@link #mUpdateTimeHandler} ticks in milliseconds.
+         */
+        long mInteractiveUpdateRateMs = NORMAL_UPDATE_RATE_MS;
+
+
         //  Time ;
         Calendar mCalendar;
         Date mDate;
@@ -96,7 +109,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
-
+        boolean mShouldDrawColons;
 
         int backgroundColorInteractive;
         int backgroundColorAmbient;
@@ -139,9 +152,11 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mTextPaint_time_light = createTextPaint(resources.getColor(R.color.main_text), LIGHT_TYPEFACE);
 
             mTextPaint_date = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
+            mTextPaint_date.setAlpha(200);
 
             mTextPaint_temp = createTextPaint(resources.getColor(R.color.main_text));
             mTextPaint_temp_light = createTextPaint(resources.getColor(R.color.second_text), LIGHT_TYPEFACE);
+            mTextPaint_temp_light.setAlpha(200);
 
             mLinePaint = createLinePaint(resources.getColor(R.color.second_text), 0.5f);
 
@@ -188,6 +203,27 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mDateFormat = new SimpleDateFormat("ccc, MMM d yyyy", Locale.getDefault());
             mDateFormat.setCalendar(mCalendar);
         }
+
+
+        @Override
+        public void onInterruptionFilterChanged(int interruptionFilter) {
+            super.onInterruptionFilterChanged(interruptionFilter);
+            boolean inMuteMode = interruptionFilter == WatchFaceService.INTERRUPTION_FILTER_NONE;
+            // We only need to update once a minute in mute mode.
+            setInteractiveUpdateRateMs(inMuteMode ? MUTE_UPDATE_RATE_MS : NORMAL_UPDATE_RATE_MS);
+        }
+
+        public void setInteractiveUpdateRateMs(long updateRateMs) {
+            if (updateRateMs == mInteractiveUpdateRateMs) {
+                return;
+            }
+            mInteractiveUpdateRateMs = updateRateMs;
+            // Stop and restart the timer so the new update rate takes effect immediately.
+            if (shouldTimerBeRunning()) {
+                updateTimer();
+            }
+        }
+
 
         @Override
         public void onVisibilityChanged(boolean visible) {
@@ -294,6 +330,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             String text;
             String text2;
 
+            // Show colons for the first half of each second so the colons blink on when the time
+            // updates.
+            mShouldDrawColons = (now % 1000) < 500;
 
             // draw date
             text = mDateFormat.format(mDate).toUpperCase();
@@ -302,10 +341,15 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY, mTextPaint_date);
             offsetY_tmp = mTextBounds.height();
 
-            // draw time
-            text = mAmbient ? String.format("%02d ", mCalendar.get(Calendar.HOUR_OF_DAY)) : String.format("%02d:", mCalendar.get(Calendar.HOUR_OF_DAY));
-            offsetX_tmp = (int) mTextPaint_time.measureText(text);
 
+            // draw time (hour)
+            text = String.format("%02d", mCalendar.get(Calendar.HOUR_OF_DAY));
+            offsetX_tmp = (int) mTextPaint_time.measureText(text + COLON_STRING);
+
+            // blinking Colons
+            if (!mAmbient && mShouldDrawColons) text = text + COLON_STRING;
+
+            // draw time (minute)
             text2 = String.format("%02d", mCalendar.get(Calendar.MINUTE));
             mTextPaint_time_light.getTextBounds(text2, 0, text2.length(), mTextBounds);
             offsetX_tmp = offsetX_tmp + mTextBounds.width();
@@ -345,9 +389,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         }
 
 
-
-
-
         /**
          * Starts the {@link #mUpdateTimeHandler} timer if it should be running and isn't currently
          * or stops it if it shouldn't be running but currently is.
@@ -374,8 +415,7 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             invalidate();
             if (shouldTimerBeRunning()) {
                 long timeMs = System.currentTimeMillis();
-                long delayMs = INTERACTIVE_UPDATE_RATE_MS
-                        - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
+                long delayMs = mInteractiveUpdateRateMs - (timeMs % mInteractiveUpdateRateMs);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
             }
         }

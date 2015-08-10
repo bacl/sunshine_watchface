@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Sunshine watchface</string>
     <string name="my_digital_name">Sunshine</string>
+    <string name="no_weather_info">No weather info available</string>
 </resources>

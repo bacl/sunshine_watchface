@@ -222,31 +222,37 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         DataApi.DataListener mDataListener = new DataApi.DataListener() {
             @Override
             public void onDataChanged(DataEventBuffer dataEvents) {
-                Log.e(TAG, "onDataChanged(): " + dataEvents);
 
                 for (DataEvent event : dataEvents) {
                     if (event.getType() == DataEvent.TYPE_CHANGED) {
                         String path = event.getDataItem().getUri().getPath();
                         if (WEATHER_PATH.equals(path)) {
-                            Log.e(TAG, "Data Changed for " + WEATHER_PATH);
+                            Log.v(TAG, "Data Changed for " + WEATHER_PATH);
                             try {
                                 DataMapItem dataMapItem = DataMapItem.fromDataItem(event.getDataItem());
-                                weather_temp_high = dataMapItem.getDataMap().getString(WEATHER_TEMP_HIGH_KEY);
-                                weather_temp_low = dataMapItem.getDataMap().getString(WEATHER_TEMP_LOW_KEY);
+                                String tempData = dataMapItem.getDataMap().getString(WEATHER_TEMP_HIGH_KEY);
+                                if (tempData != null)
+                                    weather_temp_high = tempData;
+                                tempData = dataMapItem.getDataMap().getString(WEATHER_TEMP_LOW_KEY);
+
+                                if (tempData != null)
+                                    weather_temp_low = tempData;
                                 Asset photo = dataMapItem.getDataMap().getAsset(WEATHER_TEMP_ICON_KEY);
-                                weather_temp_icon = loadBitmapFromAsset(mGoogleApiClient, photo);
+
+                                if (photo != null)
+                                    weather_temp_icon = loadBitmapFromAsset(mGoogleApiClient, photo);
+
                             } catch (Exception e) {
                                 Log.e(TAG, "Exception   ", e);
                                 weather_temp_icon = null;
+                                weather_temp_high= null;
+                                weather_temp_low = null;
                             }
 
                         } else {
-
-                            Log.e(TAG, "Unrecognized path:  \"" + path + "\"  \"" + WEATHER_PATH + "\"");
+                            Log.e(TAG, "Unrecognized path:  \"" + path + "\"");
                         }
 
-                    } else {
-                        Log.e(TAG, "Unknown data event type   " + event.getType());
                     }
                 }
             }
@@ -269,6 +275,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             }
 
         };
+
+
+
 
         @Override
         public void onDestroy() {
@@ -481,9 +490,9 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                                 centerX - mTextBounds.width() / 2 - offsetX - weather_temp_icon.getWidth(),
                                 centerY + offsetY_tmp - weather_temp_icon.getHeight() / 2 - mTextBounds.height() / 2, null);
                     }
-                }else{
+                } else {
                     // draw temperature high
-                    text= getString(R.string.no_weather_info);
+                    text = getString(R.string.no_weather_info);
                     mTextPaint_date.getTextBounds(text, 0, text.length(), mTextBounds);
                     offsetY_tmp = mTextBounds.height() + offsetY + offsetY_tmp;
                     canvas.drawText(text, centerX - mTextBounds.width() / 2, centerY + offsetY_tmp, mTextPaint_date);

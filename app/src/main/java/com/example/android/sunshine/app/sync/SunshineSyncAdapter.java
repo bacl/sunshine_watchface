@@ -93,6 +93,14 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int LOCATION_STATUS_UNKNOWN = 3;
     public static final int LOCATION_STATUS_INVALID = 4;
 
+    // Wearable stuff
+    private final String WEATHER_PATH = "/weather";
+    private final String WEATHER_TEMP_HIGH_KEY = "weather_temp_high_key";
+    private final String WEATHER_TEMP_LOW_KEY = "weather_temp_low_key";
+    private final String WEATHER_TEMP_ICON_KEY = "weather_temp_icon_key";
+    private final int WEATHER_TEMP_ICON_RESIZE_WIDTH = 52;
+    private final int WEATHER_TEMP_ICON_RESIZE_HEIGHT = 52;
+
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
     }
@@ -457,8 +465,9 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                     // WEATHER_NOTIFICATION_ID allows you to update the notification later on.
                     mNotificationManager.notify(WEATHER_NOTIFICATION_ID, mBuilder.build());
 
-                    Log.v(TAG, "sendToWear");
-                    sendToWear(largeIcon, high, low);
+
+                    // send weather info to watch
+                    sendToWear(largeIcon, weatherId, high, low);
 
 
                     //refreshing last sync
@@ -472,10 +481,29 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     }
 
 
-    private void sendToWear(Bitmap largeIcon, double high, double low) {
-        Context context= getContext();
+    private void sendToWear(Bitmap largeIcon, int weatherId, double high, double low) {
+
+        Context context = getContext();
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        final int UNKNOWN_TEMP = -9999;
+        double lastTempHigh = prefs.getFloat(context.getString(R.string.pref_last_temp_high), UNKNOWN_TEMP);
+        double lastTempLow = prefs.getFloat(context.getString(R.string.pref_last_temp_low), UNKNOWN_TEMP);
+        int lastTempDesc = prefs.getInt(context.getString(R.string.pref_last_temp_desc), UNKNOWN_TEMP);
+
+        if (lastTempHigh != UNKNOWN_TEMP && lastTempLow != UNKNOWN_TEMP && lastTempDesc != UNKNOWN_TEMP) {
+            if ((lastTempHigh == high && lastTempLow == low && lastTempDesc == weatherId))
+                return;// if it is the same data do nothing,ie don't send to the wearable
+        }
+
+        //save the new weather data
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putFloat(context.getString(R.string.pref_last_temp_high), (float)high);
+        editor.putFloat(context.getString(R.string.pref_last_temp_low),(float) low);
+        editor.putInt(context.getString(R.string.pref_last_temp_desc), lastTempDesc);
+        editor.commit();
+
         final GoogleApiClient mGoogleApiClient;
-        boolean mResolvingError = false;
+
 
         mGoogleApiClient = new GoogleApiClient.Builder(context)
                 .addApi(Wearable.API)
@@ -483,26 +511,20 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 .addOnConnectionFailedListener(connectionFailedListener)
                 .build();
 
-
-
-
+        // connect to api
         mGoogleApiClient.connect();
 
-
-
-
-        final String WEATHER_PATH = "/weather";
-        final String WEATHER_TEMP_HIGH_KEY = "weather_temp_high_key";
-        final String WEATHER_TEMP_LOW_KEY = "weather_temp_low_key";
-        final String WEATHER_TEMP_ICON_KEY = "weather_temp_icon_key";
-
-        Asset asset = toAsset(Bitmap.createScaledBitmap(largeIcon, 52, 52, true));
+        // resize weather icon and create asset
+        Asset asset = toAsset(Bitmap.createScaledBitmap(largeIcon, WEATHER_TEMP_ICON_RESIZE_WIDTH, WEATHER_TEMP_ICON_RESIZE_HEIGHT, true));
 
         PutDataMapRequest putDataMapRequest = PutDataMapRequest.create(WEATHER_PATH);
-        putDataMapRequest.getDataMap().putString(WEATHER_TEMP_HIGH_KEY, Utility.formatTemperature(context, high));
-        putDataMapRequest.getDataMap().putString(WEATHER_TEMP_LOW_KEY, Utility.formatTemperature(context, low));
-        putDataMapRequest.getDataMap().putAsset(WEATHER_TEMP_ICON_KEY, asset);
-
+        // only send the new data
+        if (lastTempHigh != high)
+            putDataMapRequest.getDataMap().putString(WEATHER_TEMP_HIGH_KEY, Utility.formatTemperature(context, high));
+        if (lastTempLow != low)
+            putDataMapRequest.getDataMap().putString(WEATHER_TEMP_LOW_KEY, Utility.formatTemperature(context, low));
+        if (lastTempDesc != weatherId)
+            putDataMapRequest.getDataMap().putAsset(WEATHER_TEMP_ICON_KEY, asset);
 
 
         PutDataRequest request = putDataMapRequest.asPutDataRequest();
@@ -510,14 +532,14 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             @Override
             public void onResult(DataApi.DataItemResult dataItemResult) {
                 if (dataItemResult.getStatus().isSuccess()) {
-                    Log.d(TAG, "Successfully send weather info");
+                    Log.d(LOG_TAG, "Successfully send weather info");
                 } else {
-                    Log.e(TAG, "Failed to send weather info ");
+                    Log.e(LOG_TAG, "Failed to send weather info ");
                 }
+                // after send data we can disconnect
                 mGoogleApiClient.disconnect();
             }
         });
-
 
 
     }
@@ -539,37 +561,25 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
         }
     }
 
-    private final String TAG = "WEAR_SYNC";
+
     GoogleApiClient.OnConnectionFailedListener connectionFailedListener = new GoogleApiClient.OnConnectionFailedListener() {
         @Override
         public void onConnectionFailed(ConnectionResult result) {
-            Log.e(TAG, "Connection to Google API client has failed");
+            Log.e(LOG_TAG, "Connection to Google API client has failed");
         }
     };
 
     GoogleApiClient.ConnectionCallbacks connectionCallbacks = new GoogleApiClient.ConnectionCallbacks() {
         @Override
         public void onConnected(Bundle bundle) {
-            Log.v(TAG, "Google API Client was connected");
-
-
+            Log.v(LOG_TAG, "Google API Client was connected");
         }
 
         @Override
         public void onConnectionSuspended(int i) {
-            Log.v(TAG, "Connection to Google API client was suspended");
+            Log.v(LOG_TAG, "Connection to Google API client was suspended");
         }
     };
-
-
-
-
-
-
-
-
-
-
 
 
     /**
